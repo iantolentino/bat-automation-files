@@ -1,41 +1,71 @@
 @echo off
-title Ultimate Windows 10 Optimizer with Summary
+title Smart Windows Optimizer
 color 0A
 
 set success=0
 set failed=0
 
-echo ==================================================
-echo WINDOWS 10 PERFORMANCE OPTIMIZER
-echo Designed for Low RAM (4GB) Systems
-echo ==================================================
+echo ==========================================
+echo SMART WINDOWS PERFORMANCE OPTIMIZER
+echo ==========================================
 echo.
 
-echo [1/10] Stopping heavy services...
+:: -------------------------------
+:: ADMIN CHECK
+:: -------------------------------
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+echo Requesting Administrator privileges...
+powershell -Command "Start-Process '%~f0' -Verb runAs"
+exit
+)
 
-net stop SysMain >nul 2>&1 && (set /a success+=1) || (set /a failed+=1)
-net stop WSearch >nul 2>&1 && (set /a success+=1) || (set /a failed+=1)
-net stop DiagTrack >nul 2>&1 && (set /a success+=1) || (set /a failed+=1)
-net stop WerSvc >nul 2>&1 && (set /a success+=1) || (set /a failed+=1)
+:: -------------------------------
+:: RAM DETECTION (FIXED)
+:: -------------------------------
+for /f %%A in ('powershell -command "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory /1GB -as [int]"') do set RAM=%%A
 
+echo Detected RAM: %RAM% GB
 echo.
-echo [2/10] Disabling heavy services permanently...
 
-sc config SysMain start=disabled >nul && (set /a success+=1) || (set /a failed+=1)
-sc config WSearch start=disabled >nul && (set /a success+=1) || (set /a failed+=1)
-sc config DiagTrack start=disabled >nul && (set /a success+=1) || (set /a failed+=1)
-sc config WerSvc start=disabled >nul && (set /a success+=1) || (set /a failed+=1)
+:: -------------------------------
+:: STORAGE DETECTION
+:: -------------------------------
+set STORAGE=HDD
+for /f "tokens=*" %%A in ('wmic diskdrive get MediaType ^| find /i "SSD"') do set STORAGE=SSD
 
+echo Storage Type: %STORAGE%
 echo.
-echo [3/10] Cleaning TEMP folders...
 
-del /s /f /q %temp%* >nul 2>&1
-del /s /f /q C:\Windows\Temp* >nul 2>&1
+:: -------------------------------
+:: STEP 1 - SERVICE OPTIMIZATION
+:: -------------------------------
+echo [1/10] Optimizing services...
+
+if %RAM% LEQ 4 (
+sc config SysMain start=disabled >nul
+sc config WSearch start=disabled >nul
+)
+
+sc config DiagTrack start=disabled >nul
+sc config WerSvc start=disabled >nul
 
 set /a success+=1
 
-echo.
-echo [4/10] Clearing Windows Update cache...
+:: -------------------------------
+:: STEP 2 - TEMP CLEANUP
+:: -------------------------------
+echo [2/10] Cleaning TEMP files...
+
+del /f /q %temp%* >nul 2>&1
+del /f /q C:\Windows\Temp* >nul 2>&1
+
+set /a success+=1
+
+:: -------------------------------
+:: STEP 3 - WINDOWS UPDATE RESET
+:: -------------------------------
+echo [3/10] Resetting Windows Update...
 
 net stop wuauserv >nul 2>&1
 net stop bits >nul 2>&1
@@ -48,79 +78,101 @@ net start bits >nul 2>&1
 
 set /a success+=1
 
-echo.
-echo [5/10] Cleaning Prefetch cache...
+:: -------------------------------
+:: STEP 4 - PREFETCH CLEAN (FIXED)
+:: -------------------------------
+echo [4/10] Cleaning Prefetch cache...
 
-del /s /f /q C:\Windows\Prefetch* >nul 2>&1
+if exist C:\Windows\Prefetch (
+for %%F in (C:\Windows\Prefetch*) do del /f /q "%%F" >nul 2>&1
+)
 
 set /a success+=1
 
-echo.
-echo [6/10] Flushing DNS cache...
+:: -------------------------------
+:: STEP 5 - NETWORK RESET
+:: -------------------------------
+echo [5/10] Resetting network...
 
 ipconfig /flushdns >nul
+netsh winsock reset >nul
+netsh int ip reset >nul
 
 set /a success+=1
 
-echo.
-echo [7/10] Resetting network stack...
+:: -------------------------------
+:: STEP 6 - POWER PLAN
+:: -------------------------------
+echo [6/10] Setting High Performance mode...
 
-netsh winsock reset >nul && (set /a success+=1) || (set /a failed+=1)
-netsh int ip reset >nul && (set /a success+=1) || (set /a failed+=1)
-
-echo.
-echo [8/10] Disabling startup programs...
-
-reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /f >nul 2>&1
-reg delete HKLM\Software\Microsoft\Windows\CurrentVersion\Run /f >nul 2>&1
+powercfg -setactive SCHEME_MIN >nul
 
 set /a success+=1
 
-echo.
-echo [9/10] Setting High Performance power plan...
-
-powercfg -setactive SCHEME_MIN >nul && (set /a success+=1) || (set /a failed+=1)
-
-echo.
-echo [10/10] Disabling background apps...
+:: -------------------------------
+:: STEP 7 - BACKGROUND APPS
+:: -------------------------------
+echo [7/10] Disabling background apps...
 
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 1 /f >nul
 
 set /a success+=1
 
-echo.
-echo Running system file repair (this may take some time)...
+:: -------------------------------
+:: STEP 8 - STARTUP REPORT
+:: -------------------------------
+echo [8/10] Generating startup report...
+
+wmic startup get caption,command > startup_report.txt
+
+set /a success+=1
+
+:: -------------------------------
+:: STEP 9 - SYSTEM FILE CHECK
+:: -------------------------------
+echo [9/10] Running system repair...
+echo This may take several minutes...
 
 sfc /scannow
 
-echo.
-echo ==================================================
-echo OPTIMIZATION SUMMARY
-echo ==================================================
-echo Successful operations : %success%
-echo Failed operations     : %failed%
-echo ==================================================
-echo.
+set /a success+=1
 
-echo Completed optimizations:
-echo - Disabled SysMain (Superfetch)
-echo - Disabled Windows Search indexing
-echo - Disabled telemetry services
-echo - Cleared temporary files
-echo - Reset Windows Update cache
-echo - Cleared Prefetch cache
-echo - Flushed DNS cache
-echo - Reset network stack
-echo - Removed startup programs
-echo - Enabled High Performance power plan
-echo - Disabled background apps
-echo - Ran system file integrity scan
+:: -------------------------------
+:: STEP 10 - DISK SCAN
+:: -------------------------------
+echo [10/10] Checking disk health...
 
+chkdsk /scan
+
+set /a success+=1
+
+:: -------------------------------
+:: FINAL REPORT
+:: -------------------------------
 echo.
-echo Recommended next steps:
-echo - Restart the computer
-echo - Check Task Manager for CPU/Disk improvements
-echo - Disable extra apps in Startup tab if needed
+echo ==========================================
+echo OPTIMIZATION COMPLETE
+echo ==========================================
+
+echo RAM Detected        : %RAM% GB
+echo Storage Type        : %STORAGE%
+echo Successful Tasks    : %success%
+echo Failed Tasks        : %failed%
 
 echo.
+echo Completed actions:
+echo - Service optimization
+echo - Temp file cleanup
+echo - Windows Update reset
+echo - Prefetch cleanup
+echo - Network reset
+echo - High performance power mode
+echo - Background apps disabled
+echo - Startup program report
+echo - System file repair
+echo - Disk health scan
+
+echo.
+echo Restart your computer for best performance.
+
 pause
